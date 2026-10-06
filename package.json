@@ -12,11 +12,13 @@
     "start": "node dist/server.js",
     "e2e": "playwright test"
   },
-  "dependencies": { "express": "^5.2.1" },
+  "dependencies": {
+    "express": "^5.2.1",
+    "@types/node": "^24.13.6"
+  },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
     "@types/express": "^5.0.6",
-    "@types/node": "^24.13.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
