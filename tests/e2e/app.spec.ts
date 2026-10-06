@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 test('application renders and its critical browser path works', async ({ page }) => {
   const consoleErrors: string[] = [];
   const failedRequests: string[] = [];
+  const deploymentOrigin = process.env.BASE_URL ? new URL(process.env.BASE_URL).origin : null;
 
   page.on('console', message => {
     if (message.type() === 'error') consoleErrors.push(message.text());
@@ -11,9 +12,18 @@ test('application renders and its critical browser path works', async ({ page })
     consoleErrors.push(`pageerror: ${error.message}`);
   });
   page.on('requestfailed', request => {
-    failedRequests.push(
-      `${request.method()} ${request.url()} :: ${request.failure()?.errorText ?? 'unknown'}`
-    );
+    const failure = request.failure()?.errorText ?? 'unknown';
+    const requestUrl = new URL(request.url());
+    const isVercelToolbarJweAbort =
+      requestUrl.pathname === '/.well-known/vercel/jwe' &&
+      requestUrl.origin === deploymentOrigin &&
+      failure === 'net::ERR_ABORTED';
+
+    if (!isVercelToolbarJweAbort) {
+      failedRequests.push(
+        `${request.method()} ${request.url()} :: ${failure}`
+      );
+    }
   });
 
   const response = await page.goto('/', { waitUntil: 'domcontentloaded' });
