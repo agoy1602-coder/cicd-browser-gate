@@ -24,7 +24,13 @@ Reference CI/CD system based on the Traversy Media CI/CD lab concept, strengthen
 
 ## Required pipeline
 
-Install -> typecheck -> unit/API tests -> build -> start -> real Chromium -> deployment -> deployed Chromium verification.
+Install -> typecheck -> unit/API tests -> build -> start -> real Chromium -> deployment -> deployed HTTP check -> deployed Chromium verification.
+
+## Deployed verification rule
+
+A deployment is not considered verified because the hosting provider reports success. The exact deployed URL must be tested with the browser gate. The deployed verification workflow must fail closed on invalid URLs, failed HTTP responses, blank/broken rendering, critical browser errors, or failed critical requests.
+
+The deployment provider must be selected and configured explicitly before an automatic deployment job is added. Do not invent provider commands, tokens, hooks, or secrets.
 
 ## Change rule
 

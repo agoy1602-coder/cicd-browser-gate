@@ -1,0 +1,74 @@
+name: CD - Verify Deployed URL
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: "Exact deployed application URL to verify"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify-deployed:
+    name: Verify deployed application in real Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate deployment URL
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          value = os.environ["DEPLOYMENT_URL"].strip()
+          parsed = urlparse(value)
+
+          if parsed.scheme not in ("http", "https") or not parsed.netloc:
+              raise SystemExit("deployment_url must be a complete http(s) URL")
+
+          print(f"Deployment URL accepted: {parsed.scheme}://{parsed.netloc}")
+          PY
+
+      - name: Check deployed HTTP response
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+        run: |
+          curl --fail --silent --show-error --location             --max-time 30             "$DEPLOYMENT_URL"             -o /tmp/deployed.html
+          test -s /tmp/deployed.html
+
+      - name: Real Chromium deployed browser gate
+        env:
+          BASE_URL: ${{ inputs.deployment_url }}
+          CI: true
+        run: npm run e2e
+
+      - name: Upload deployed browser evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: deployed-browser-gate-evidence
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
