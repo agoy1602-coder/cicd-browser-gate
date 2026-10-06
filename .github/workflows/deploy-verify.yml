@@ -8,12 +8,24 @@ on:
         required: true
         type: string
 
+  deployment_status:
+
 permissions:
   contents: read
 
 jobs:
   verify-deployed:
     name: Verify deployed application in real Chromium
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'deployment_status' &&
+        github.event.deployment_status.state == 'success' &&
+        (
+          github.event.deployment_status.environment_url != '' ||
+          github.event.deployment_status.target_url != ''
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -33,9 +45,28 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Resolve deployment URL
+        id: deployment-url
+        env:
+          MANUAL_URL: ${{ inputs.deployment_url }}
+          EVENT_ENVIRONMENT_URL: ${{ github.event.deployment_status.environment_url }}
+          EVENT_TARGET_URL: ${{ github.event.deployment_status.target_url }}
+        run: |
+          set -euo pipefail
+
+          value="${MANUAL_URL:-${EVENT_ENVIRONMENT_URL:-${EVENT_TARGET_URL:-}}}"
+
+          if [ -z "$value" ]; then
+            echo "No deployment URL was supplied by the workflow dispatch or deployment status event."
+            exit 1
+          fi
+
+          printf 'url=%s\n' "$value" >> "$GITHUB_OUTPUT"
+          echo "Deployment URL resolved."
+
       - name: Validate deployment URL
         env:
-          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+          DEPLOYMENT_URL: ${{ steps.deployment-url.outputs.url }}
         run: |
           python - <<'PY'
           import os
@@ -45,21 +76,24 @@ jobs:
           parsed = urlparse(value)
 
           if parsed.scheme not in ("http", "https") or not parsed.netloc:
-              raise SystemExit("deployment_url must be a complete http(s) URL")
+              raise SystemExit("deployment URL must be a complete http(s) URL")
 
           print(f"Deployment URL accepted: {parsed.scheme}://{parsed.netloc}")
           PY
 
       - name: Check deployed HTTP response
         env:
-          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+          DEPLOYMENT_URL: ${{ steps.deployment-url.outputs.url }}
         run: |
-          curl --fail --silent --show-error --location             --max-time 30             "$DEPLOYMENT_URL"             -o /tmp/deployed.html
+          curl --fail --silent --show-error --location \
+            --max-time 30 \
+            "$DEPLOYMENT_URL" \
+            -o /tmp/deployed.html
           test -s /tmp/deployed.html
 
       - name: Real Chromium deployed browser gate
         env:
-          BASE_URL: ${{ inputs.deployment_url }}
+          BASE_URL: ${{ steps.deployment-url.outputs.url }}
           CI: true
         run: npm run e2e
 
