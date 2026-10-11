@@ -82,8 +82,8 @@ jobs:
           {
             echo "## CI browser gate"
             echo
-            echo "- Commit: `$COMMIT_SHA`"
-            echo "- Run: $WORKFLOW_URL"
+            printf '%s\n' "- Commit: $COMMIT_SHA"
+            printf '%s\n' "- Run: $WORKFLOW_URL"
             echo "- Node: $(node --version 2>/dev/null || echo unavailable)"
             echo "- npm: $(npm --version 2>/dev/null || echo unavailable)"
             echo
