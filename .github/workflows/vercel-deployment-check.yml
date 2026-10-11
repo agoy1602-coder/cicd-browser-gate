@@ -74,6 +74,7 @@ jobs:
               output.write(f"sha={sha}\n")
 
           print(f"Validated source SHA: {sha}")
+          PY
 
       # On repository_dispatch the action starts a pending commit status, then its
       # post step reports this job's actual final success/failure on the deployment SHA.
