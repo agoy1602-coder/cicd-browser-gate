@@ -38,6 +38,23 @@ A generic smoke test cannot prove that every product feature works. Each critica
 
 A post-deployment verification run **detects** a bad release; it does not automatically stop a hosting provider from having already assigned the production domain. For a true pre-release blocker, configure your host's deployment-check or staged-promotion feature so the tested deployment is not promoted until its deployment-specific browser checks pass. See [DEPLOYMENT_GATE.md](./DEPLOYMENT_GATE.md).
 
+## Pre-promotion release gate (Vercel)
+
+The separate `.github/workflows/vercel-deployment-check.yml` is designed for Vercel Deployment Checks. Vercel sends the `vercel.deployment.ready` repository-dispatch event after the deployment is built and before configured checks run. The workflow validates the deployment metadata, tests the exact deployment commit in Chromium, and reports its outcome on that commit using Vercel's status action pinned to a verified commit.
+
+**Before merging this workflow or making its status a required Vercel check:**
+
+1. In GitHub **Settings → Secrets and variables → Actions → Variables**, create `VERCEL_PROJECT_ID` with the exact project ID shown by Vercel for this repository. This is a non-secret identifier. The workflow fails closed if it is missing or does not match the deployment event.
+2. Confirm Vercel is connected to this repository and that the expected deployment-ready repository-dispatch event is arriving.
+3. Once a dispatch run succeeds and the corresponding commit status appears, open Vercel **Project Settings → Build & Deployment → Deployment Checks** and add the exact GitHub check context produced by the workflow as a required production check.
+4. Keep production domain auto-assignment enabled so Vercel can assign the production domains only after the required checks pass. Never use Force Promote to work around a failed gate without explicitly accepting the risk.
+
+The status context is generated from the workflow/job name and deployment project/environment. Keep that name stable after selecting it in Vercel; changing the workflow or job name can change the check context. The dispatch workflow runs from the repository's default branch, so this workflow must be merged to that branch before Vercel can trigger it.
+
+The existing `CD - Verify Deployed URL` workflow remains useful for **post-deployment detection and scheduled smoke checks**. It is not itself a pre-promotion release blocker.
+
+Manual execution of the blocking workflow requires an exact HTTPS Vercel deployment URL and its 40-character source SHA. Manual runs are diagnostic only and do not publish a Vercel blocking status.
+
 ## Configure scheduled smoke monitoring
 
 In GitHub repository **Settings → Secrets and variables → Actions → Variables**, add:
