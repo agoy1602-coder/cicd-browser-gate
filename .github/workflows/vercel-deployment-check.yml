@@ -1,0 +1,224 @@
+name: Vercel - Blocking Browser Check
+
+# Vercel emits this event after a deployment is built and before Deployment Checks
+# run. Keep this workflow on the default branch for repository_dispatch to work.
+on:
+  repository_dispatch:
+    types: [vercel.deployment.ready]
+
+  # Operator-run diagnostic against an exact deployment; this does not report a
+  # Vercel deployment-check status and cannot by itself block promotion.
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: Exact public Vercel deployment URL (HTTPS)
+        required: true
+        type: string
+      deployment_sha:
+        description: Exact 40-character Git commit SHA that produced the deployment
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  statuses: write
+
+concurrency:
+  group: vercel-browser-gate-${{ github.event.client_payload.id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  verify-deployment:
+    name: Verify deployed application in Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Validate deployment identity and exact source SHA
+        id: identity
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.event.client_payload.git.sha }}
+          EVENT_PROJECT_ID: ${{ github.event.client_payload.project.id }}
+          EXPECTED_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          MANUAL_SHA: ${{ inputs.deployment_sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+
+          if os.environ["EVENT_NAME"] == "repository_dispatch":
+              expected_project_id = os.environ.get("EXPECTED_PROJECT_ID", "").strip()
+              event_project_id = os.environ.get("EVENT_PROJECT_ID", "").strip()
+              if not expected_project_id:
+                  raise SystemExit(
+                      "Required GitHub Actions repository variable VERCEL_PROJECT_ID is missing. "
+                      "Set it to the intended Vercel project ID before enabling this as a required check."
+                  )
+              if event_project_id != expected_project_id:
+                  raise SystemExit(
+                      f"Deployment belongs to unexpected Vercel project ID: {event_project_id or '[missing]'}"
+                  )
+              sha = os.environ.get("EVENT_SHA", "").strip().lower()
+          else:
+              sha = os.environ.get("MANUAL_SHA", "").strip().lower()
+
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("Deployment source must be an exact 40-character Git commit SHA.")
+
+          # Do not report a status until the event's project identity and commit
+          # are trustworthy. Remaining deployment metadata is validated afterward.
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"sha={sha}\n")
+
+          print(f"Validated source SHA: {sha}")
+          PY
+
+      # On repository_dispatch the action starts a pending commit status, then its
+      # post step reports this job's actual final success/failure on the deployment SHA.
+      # The action is pinned to an immutable, signed Vercel repository-dispatch commit.
+      - name: Report Vercel deployment-check status
+        if: github.event_name == 'repository_dispatch'
+        uses: vercel/repository-dispatch/actions/status@bad8e8a0bbca4c5f5fa22483d080cb71ee5aad11 # verified Vercel commit
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve and validate deployment URL
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_URL: ${{ github.event.client_payload.url }}
+          EVENT_PROJECT_NAME: ${{ github.event.client_payload.project.name }}
+          EVENT_ENVIRONMENT: ${{ github.event.client_payload.environment }}
+          MANUAL_URL: ${{ inputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          if os.environ["EVENT_NAME"] == "repository_dispatch":
+              value = os.environ.get("EVENT_URL", "").strip()
+              project_name = os.environ.get("EVENT_PROJECT_NAME", "").strip()
+              environment = os.environ.get("EVENT_ENVIRONMENT", "").strip().lower()
+              if not project_name or any(ord(char) < 32 for char in project_name):
+                  raise SystemExit("Vercel deployment event did not include a valid project.name.")
+              if environment not in ("production", "preview"):
+                  raise SystemExit(
+                      f"Unsupported Vercel environment: {environment or '[missing]'}; expected production or preview."
+                  )
+          else:
+              value = os.environ.get("MANUAL_URL", "").strip()
+              environment = "manual"
+
+          if not value:
+              raise SystemExit("Deployment URL is missing.")
+          if any(ord(char) < 32 or char.isspace() for char in value):
+              raise SystemExit("Deployment URL must not contain whitespace or control characters.")
+
+          parsed = urlsplit(value)
+          if parsed.scheme != "https" or not parsed.hostname:
+              raise SystemExit("Deployment URL must be a complete HTTPS URL.")
+          if parsed.username or parsed.password:
+              raise SystemExit("Deployment URL must not contain embedded credentials.")
+          if parsed.query or parsed.fragment:
+              raise SystemExit("Deployment URL must not contain a query string or fragment.")
+          if parsed.path not in ("", "/"):
+              raise SystemExit("Supply the deployment base URL without a path.")
+          if parsed.port not in (None, 443):
+              raise SystemExit("Only the default HTTPS port is accepted.")
+
+          hostname = parsed.hostname.rstrip(".").lower()
+          if not hostname.endswith(".vercel.app"):
+              raise SystemExit("Expected the unique Vercel deployment hostname ending in .vercel.app.")
+
+          # Output only the validated URL; payload project names are never written
+          # to GITHUB_OUTPUT.
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"url={value}\n")
+
+          print(f"Validated deployment host: {hostname}")
+          print(f"Validated deployment environment: {environment}")
+          PY
+
+      - name: Checkout exact deployed source commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ steps.identity.outputs.sha }}
+          persist-credentials: false
+
+      - name: Confirm checked-out commit
+        env:
+          EXPECTED_SHA: ${{ steps.identity.outputs.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$EXPECTED_SHA" ]; then
+            echo "Checked-out source SHA does not match deployment source SHA."
+            echo "Expected: $EXPECTED_SHA"
+            echo "Actual:   $actual"
+            exit 1
+          fi
+
+      - name: Setup Node 24
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # setup-node v5.0.0
+        with:
+          node-version: 24
+          cache: npm
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Check deployed HTTP response
+        env:
+          DEPLOYMENT_URL: ${{ steps.target.outputs.url }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' --max-redirs 5 \
+            --connect-timeout 10 --max-time 45 \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            "$DEPLOYMENT_URL" -o /tmp/deployed.html
+          test -s /tmp/deployed.html
+          echo "Deployed URL returned a successful, non-empty response."
+
+      - name: Real Chromium deployed browser gate
+        env:
+          BASE_URL: ${{ steps.target.outputs.url }}
+          CI: true
+        run: npm run e2e
+
+      - name: Write deployment-check diagnostic summary
+        if: always()
+        env:
+          DEPLOYMENT_URL: ${{ steps.target.outputs.url }}
+          DEPLOYMENT_SHA: ${{ steps.identity.outputs.sha }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "## Vercel deployment browser gate"
+            echo
+            printf '%s\n' "- Deployment URL: $DEPLOYMENT_URL"
+            printf '%s\n' "- Deployment source commit: $DEPLOYMENT_SHA"
+            printf '%s\n' "- Verification run: $WORKFLOW_URL"
+            echo "- Trigger: ${{ github.event_name }}"
+            echo
+            echo "Browser reports, JSON diagnostics, screenshots, traces/video when available are attached as the workflow artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload deployed browser evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # upload-artifact v7.0.2
+        with:
+          name: vercel-blocking-browser-evidence
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14

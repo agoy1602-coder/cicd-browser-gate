@@ -8,38 +8,70 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Validate GitHub Actions workflows with actionlint
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz" \
+            -o "$archive"
+          printf '%s  %s\n' \
+            '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' \
+            "$archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/actionlint" -color
+
       - name: Setup Node 24
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # setup-node v5.0.0
         with:
           node-version: 24
           cache: npm
+          package-manager-cache: false
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Dependency vulnerability audit
+        run: npm audit --audit-level=high
+
       - name: Typecheck
         run: npm run typecheck
+
       - name: Unit/API tests
         run: npm test
+
       - name: Build
         run: npm run build
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
+
       - name: Start built application
         env:
           PORT: 3000
-          APP_VERSION: ci
+          APP_VERSION: ${{ github.sha }}
         run: |
           nohup npm start > server.log 2>&1 &
           echo $! > server.pid
+
       - name: Wait for application health
         run: |
-          for i in {1..30}; do
+          for _ in {1..30}; do
             if curl --fail --silent http://127.0.0.1:3000/api/health; then
               echo
               exit 0
@@ -48,21 +80,42 @@ jobs:
           done
           cat server.log
           exit 1
+
       - name: Real Chromium browser gate
         env:
           BASE_URL: http://127.0.0.1:3000
           CI: true
         run: npm run e2e
+
+      - name: Write CI diagnostic summary
+        if: always()
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "## CI browser gate"
+            echo
+            printf '%s\n' "- Commit: $COMMIT_SHA"
+            printf '%s\n' "- Run: $WORKFLOW_URL"
+            echo "- Node: $(node --version 2>/dev/null || echo unavailable)"
+            echo "- npm: $(npm --version 2>/dev/null || echo unavailable)"
+            echo
+            echo "Browser reports, traces, screenshots, video, and server logs are attached as workflow artifacts when available."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload browser evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # upload-artifact v7.0.2
         with:
           name: browser-gate-evidence
           path: |
             playwright-report/
             test-results/
             server.log
-          if-no-files-found: ignore
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Stop application
         if: always()
         run: |
