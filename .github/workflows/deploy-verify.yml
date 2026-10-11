@@ -54,7 +54,6 @@ jobs:
           EVENT_DEPLOYMENT_SHA: ${{ github.event.deployment.sha }}
           SCHEDULED_PRODUCTION_URL: ${{ vars.PRODUCTION_BASE_URL }}
           SCHEDULED_PRODUCTION_SHA: ${{ vars.PRODUCTION_DEPLOYMENT_SHA }}
-          WORKFLOW_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -74,7 +73,6 @@ jobs:
               os.environ.get("MANUAL_SHA", "").strip()
               or os.environ.get("EVENT_DEPLOYMENT_SHA", "").strip()
               or os.environ.get("SCHEDULED_PRODUCTION_SHA", "").strip()
-              or os.environ.get("WORKFLOW_SHA", "").strip()
           )
 
           if not value:
@@ -181,7 +179,7 @@ jobs:
             echo "## Post-deployment verification"
             echo
             echo "- Deployment URL: $DEPLOYMENT_URL"
-            echo "- Deployment source commit: `$DEPLOYMENT_SHA`"
+            printf '%s\n' "- Deployment source commit: $DEPLOYMENT_SHA"
             echo "- Verification run: $WORKFLOW_URL"
             echo "- Trigger: ${{ github.event_name }}"
             echo
