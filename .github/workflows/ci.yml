@@ -22,6 +22,20 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate GitHub Actions workflows with actionlint
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz" \
+            -o "$archive"
+          printf '%s  %s\n' \
+            '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' \
+            "$archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/actionlint" -color
+
       - name: Setup Node 24
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # setup-node v5.0.0
         with:
