@@ -2,7 +2,7 @@
 
 ## Detection layer in this repository
 
-The `CD - Verify Deployed URL` workflow verifies a successful GitHub deployment-status event, a manually supplied deployment URL and commit SHA, or the configured production URL on its six-hour schedule. It checks the deployed HTTP response and runs the generic Playwright browser smoke test against that URL. The workflow keeps evidence in a GitHub Actions artifact.
+The `CD - Verify Deployed URL` workflow verifies a successful GitHub deployment-status event, a manually supplied deployment URL and commit SHA, or the configured production URL on its six-hour schedule. It checks the deployed HTTP response and runs the generic Playwright browser smoke test against that URL. The workflow keeps evidence in a GitHub Actions artifact. Scheduled production checks require the repository variables `PRODUCTION_BASE_URL` and `PRODUCTION_DEPLOYMENT_SHA`; the SHA must identify the exact commit currently serving production and must be updated after each release unless the deployment integration updates it automatically.
 
 That proves only the assertions included in the tests. It is not an automatic rollback system and does not, by itself, guarantee the production domain was held while the tests ran.
 
