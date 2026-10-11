@@ -194,6 +194,22 @@ jobs:
           CI: true
         run: npm run e2e
 
+      # TEMPORARY ACCEPTANCE TEST: marker exists only in the controlled test commit.
+      # Fails the check, not the application, and only for production deployment events.
+      - name: Controlled production gate failure injection
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ENVIRONMENT: ${{ github.event.client_payload.environment }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "repository_dispatch" ] &&
+             [ "$EVENT_ENVIRONMENT" = "production" ] &&
+             [ -f ".deployment-gate-failure-test" ]; then
+            echo "::error::Intentional acceptance-test failure: verify that Vercel holds production promotion."
+            exit 1
+          fi
+          echo "No production failure-injection marker for this deployment."
+
       - name: Write deployment-check diagnostic summary
         if: always()
         env:

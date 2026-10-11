@@ -1,0 +1,1 @@
+Temporary controlled acceptance-test marker for one production promotion-gate failure. The application code does not read this file. Remove this file and the matching temporary workflow step in the cleanup PR.
