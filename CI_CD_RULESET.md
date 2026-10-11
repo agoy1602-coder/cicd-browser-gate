@@ -18,12 +18,17 @@ Reusable CI/CD foundation inspired by the Traversy Media CI/CD lab concept and s
 10. Preserve Playwright reports, JSON diagnostics, screenshots, traces/videos, and logs when available.
 11. Local/preview verification and deployed verification are separate gates.
 12. Post-deployment monitoring is useful detection but is not a rollback or pre-release blocker by itself.
-13. The exact source commit tested against a deployment must match the commit that produced the deployment.
-14. A release must not be called verified from build output or hosting-provider status alone.
-15. Secrets belong in GitHub/hosting secret stores, never in source or browser diagnostics.
-16. Deployment jobs must depend on the complete verification job, and production promotion must depend on the host's configured release gate.
+13. Vercel production release-blocking checks must start from `vercel.deployment.ready` and publish a result against the exact deployed commit before promotion.
+14. A Vercel repository-dispatch event must be checked against the configured project ID before testing; never trust a URL or commit SHA without validation.
+15. The exact source commit tested against a deployment must match the commit that produced the deployment.
+16. A release must not be called verified from build output or hosting-provider status alone.
+17. Secrets belong in GitHub/hosting secret stores, never in source or browser diagnostics.
+18. Deployment jobs must depend on the complete verification job, and production promotion must depend on the host's configured release gate.
 
 ## Required pipeline
+
+For Vercel production release blocking, use `.github/workflows/vercel-deployment-check.yml` with the `vercel.deployment.ready` repository-dispatch event and configure its generated GitHub status as a required Vercel Deployment Check. Keep `deploy-verify.yml` as the post-deployment detection path.
+
 
 Install -> dependency audit -> typecheck -> unit/API tests -> build -> start -> real Chromium smoke test -> deployment-specific HTTP/browser verification -> evidence.
 
