@@ -34,3 +34,18 @@ The smoke test cannot know whether a product-specific workflow worked. Add E2E t
 Example: a voice-generation test should submit a valid test input, assert that the intended API request succeeds, assert that an audio result is produced, and verify that the audio can be loaded/played. Merely asserting that the homepage loads is not enough.
 
 For production checks, avoid destructive actions and avoid using real customer data. If a workflow needs a paid external API, decide whether to stub it in CI and separately run a controlled integration check with a dedicated test credential.
+
+
+## Pre-promotion gate workflow
+
+Use `.github/workflows/vercel-deployment-check.yml` for the blocking Vercel path. It listens for Vercel's `vercel.deployment.ready` repository-dispatch event, which arrives before Deployment Checks run. The workflow must exist on the default branch for GitHub to run repository-dispatch events.
+
+Before making the generated commit status a required Vercel check:
+- Set the GitHub Actions repository variable `VERCEL_PROJECT_ID` to the exact Vercel project ID. This avoids running tests against a deployment from a different project connected to the same repository.
+- Wait for a valid Vercel-dispatch run and inspect the generated commit status.
+- Select that exact status in Vercel **Project Settings → Build & Deployment → Deployment Checks** as a required production check.
+- Keep production auto-assignment enabled. Do not use Force Promote to bypass a failed test except under an explicit, informed release decision.
+
+The GitHub status action is pinned to an immutable Vercel commit and reports the final job result against the SHA from the deployment event. It requires only `actions: read`, `contents: read`, and `statuses: write`; no Vercel token is used. The deployed source is checked out with persisted Git credentials disabled.
+
+This blocking path is separate from post-deployment verification. A workflow that starts only after a successful `deployment_status` event can detect failures after deployment, but it cannot guarantee that production traffic was held beforehand.
