@@ -33,6 +33,7 @@ test('application renders and reports no critical browser or API failures', asyn
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
   const failedRequests: string[] = [];
+  const ignoredRequestFailures: string[] = [];
   const badResponses: string[] = [];
   const base = new URL(configuredBaseUrl);
 
@@ -53,14 +54,27 @@ test('application renders and reports no critical browser or API failures', asyn
       requestUrl.pathname === '/.well-known/vercel/jwe' &&
       requestUrl.origin === base.origin &&
       failure === 'net::ERR_ABORTED';
+    const isAbortedNonNavigationHeadRootProbe =
+      request.method() === 'HEAD' &&
+      requestUrl.origin === base.origin &&
+      requestUrl.pathname === '/' &&
+      failure === 'net::ERR_ABORTED' &&
+      !request.isNavigationRequest();
     const explicitlyIgnored = ignoredRequestFailureSubstrings.some(value =>
       request.url().includes(value)
     );
+    const requestSummary =
+      `${request.method()} ${redactSensitiveQueryValues(request.url())} :: ${failure}` +
+      ` [resourceType=${request.resourceType()}, navigation=${request.isNavigationRequest()}]`;
 
-    if (!isKnownVercelToolbarAbort && !explicitlyIgnored) {
-      failedRequests.push(
-        `${request.method()} ${redactSensitiveQueryValues(request.url())} :: ${failure}`
-      );
+    if (isAbortedNonNavigationHeadRootProbe) {
+      // The deployed Vercel response injects vercel.live feedback tooling.
+      // A cancelled auxiliary HEAD probe to the exact page origin/root is not the
+      // page navigation. The real GET navigation and its HTTP status are asserted below.
+      // Keep this narrowly scoped; do not suppress GETs, other paths/origins, or navigation failures.
+      ignoredRequestFailures.push(`known non-navigation HEAD probe: ${requestSummary}`);
+    } else if (!isKnownVercelToolbarAbort && !explicitlyIgnored) {
+      failedRequests.push(requestSummary);
     }
   });
 
@@ -114,6 +128,7 @@ test('application renders and reports no critical browser or API failures', asyn
         consoleErrors,
         pageErrors,
         failedRequests,
+        ignoredRequestFailures,
         badResponses
       }, null, 2),
       contentType: 'application/json'
