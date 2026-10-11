@@ -49,3 +49,17 @@ Before making the generated commit status a required Vercel check:
 The GitHub status action is pinned to an immutable Vercel commit and reports the final job result against the SHA from the deployment event. It requires only `actions: read`, `contents: read`, and `statuses: write`; no Vercel token is used. The deployed source is checked out with persisted Git credentials disabled.
 
 This blocking path is separate from post-deployment verification. A workflow that starts only after a successful `deployment_status` event can detect failures after deployment, but it cannot guarantee that production traffic was held beforehand.
+
+## Verifying the actual pre-promotion gate
+
+A green GitHub Actions result proves the browser tests passed; by itself it does not prove Vercel withheld production aliases while the status was pending.
+
+Validate this using a new deployment created by the normal GitHub-to-Vercel flow (a commit pushed or merged to the connected production branch):
+
+1. Record the currently promoted deployment and production aliases before the new deployment is built.
+2. When Vercel emits `vercel.deployment.ready`, confirm the blocking browser workflow starts and reports a pending commit status for that exact deployment SHA.
+3. While the required status is pending, confirm the production domain still resolves to the previous known-good deployment; a newly built production candidate may be ready without being promoted.
+4. On success, verify that Vercel assigns the production aliases to the new deployment.
+5. For failure-path validation, use a controlled test that keeps application behavior healthy but makes the gate fail. Confirm the previous release remains promoted. Never use Force Promote as a test shortcut.
+
+A deployment created directly through the Vercel API with `target: production` is not sufficient by itself to prove the Git-connected promotion gate: its production alias may be assigned while the GitHub status action is still pending. Treat that observation as inconclusive and validate through the normal GitHub-connected deployment lifecycle.
