@@ -24,7 +24,7 @@ Successful deployment event or manual verification
 → run the Chromium smoke gate against that deployed URL  
 → preserve browser diagnostics.
 
-The deployment verification workflow also runs every six hours **when** the repository variable `PRODUCTION_BASE_URL` is configured. This is a synthetic smoke check, not a substitute for application-specific monitoring.
+The deployment verification workflow also runs every six hours **when both** repository variables `PRODUCTION_BASE_URL` and `PRODUCTION_DEPLOYMENT_SHA` are configured. This is a synthetic smoke check, not a substitute for application-specific monitoring.
 
 ## What this catches
 
@@ -43,8 +43,9 @@ A post-deployment verification run **detects** a bad release; it does not automa
 In GitHub repository **Settings → Secrets and variables → Actions → Variables**, add:
 
 - `PRODUCTION_BASE_URL`: the public HTTPS base URL of the production application.
+- `PRODUCTION_DEPLOYMENT_SHA`: the exact 40-character Git commit SHA currently serving production. Update it after each production release unless your deployment integration updates it automatically.
 
-The scheduled workflow skips itself when this variable is absent. The manual workflow requires both the exact deployed HTTPS URL and the 40-character Git commit SHA that produced it. Deployment-status-triggered verification uses the source SHA from the GitHub deployment event.
+The scheduled workflow skips itself when either variable is absent. It checks out the recorded live commit rather than assuming the latest `main` commit is deployed. The manual workflow requires both the exact deployed HTTPS URL and the 40-character Git commit SHA that produced it. Deployment-status-triggered verification uses the source SHA from the GitHub deployment event.
 
 ## Local
 
